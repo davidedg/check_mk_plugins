@@ -1,0 +1,15 @@
+# VEEAM Plugin for Check_MK
+
+v1.0 - initial release:
+Author: Davide Del Grande <davide.delgrande _ lanewan.it> / <delgrande.davide _ gmail.com>
+Based on original veeam_backup_status.ps1 in Check_MK 1.2.6p2
+
+Enhancements over the original plugin:
+- Supports "retried" jobs by searching all sessions started within last $HoursToCheck hours
+- No Duplicates: a VM is reported only ONCE, even if it's in multiple Jobs (most recent state)
+- VMs are reported based on session Creationtime rather than EndTime (most recent snapshot creation = more recent data)
+
+v1.1 - fixes:
+- Enhancements to PS console, taken from original plugin in Check_MK 1.2.6p12
+- Fixed broken output on some non-english systems (time separator)
+- Spaces in VM names are now replaced with underscores, to behave better together with VMWare checks
