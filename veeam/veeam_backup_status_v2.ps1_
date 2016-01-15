@@ -17,6 +17,10 @@
 # Enhancements to PS console, taken from original plugin in Check_MK 1.2.6p12
 # Fixed broken output on some non-english systems (time separator)
 # Spaces in VM names are now replaced with underscores, to behave better together with VMWare checks
+# v1.2 - fixes:
+# - Now supports "retrying" jobs by ignoring JOBs/VMs if they are going to be retried.
+#   For a VM, its previous backup state will be reported.
+#   For a JOB, it will be reported as "Working" until its last retry
 
 
 
@@ -55,7 +59,7 @@ if (-not (Get-PSSnapin $snapin -ErrorAction "SilentlyContinue"))
 
 try {
 
-# Get a list of SCHEDULED JOBS and convert it to a null-HASH (used just for comparison)
+# Get a list of NOT-DISABLED ("IsScheduleEnabled") JOBS and convert it to a null-HASH (used just for comparison)
 $ScheduledJobs_H=@{}
 $ScheduledJobs = Get-VBRJob | Where-Object {$_.IsScheduleEnabled -eq $true}
 $ScheduledJobs | ForEach-Object { $ScheduledJobs_H[$_.Id] = $null }
@@ -80,16 +84,20 @@ $SessionsTasks=$Sessions|Get-VBRTaskSession
 # key=VM-NAME -> value=Veeam.Backup.Core.CBackupTaskSession
 $vms=@{}
 $SessionsTasks | ForEach-Object {
-	if ($vms.ContainsKey($_.Name)) {
-		if ($_.Progress.StartTime -gt $vms[$_.Name].Progress.StartTime) { # Having sorted before, this will seldom execute
-			$vms[$_.Name] = $_ 	# Overwrite with most recent one
+	# Include the VM in the list only if:
+	# - this is last retry session (WillBeRetried = false)
+	# - backup session will be retried, but this particular VM will *not* be retried (since it's already OK/warning)
+	if (     (! $_.JobSess.WillBeRetried)      -or      ( ($_.JobSess.WillBeRetried)          -and        ($_.Status -ne "Failed")      )    ) {
+		if ($vms.ContainsKey($_.Name)) {
+			if ($_.Progress.StartTime -gt $vms[$_.Name].Progress.StartTime) { # Having sorted before, this will seldom execute
+				$vms[$_.Name] = $_ 	# Overwrite with most recent one
+			}
+		}
+		else {
+			$vms.Add($_.Name, $_)	# Add VM to hash
 		}
 	}
-	else {
-		$vms.Add($_.Name, $_)	# Add VM to hash
-	}
 }
-
 
 #####################################
 # NOW FORMAT THE OUTPUT FOR CHECK_MK
@@ -98,9 +106,14 @@ $SessionsTasks | ForEach-Object {
 # Backup Jobs Section
 $myJobsText = "<<<veeam_jobs:sep(9)>>>`n" # Create new text string for backup job section. Initialize it with header
 $ScheduledJobs | ForEach-Object {
-	$myJobLastState = $_.GetLastState()
-	$myJobLastResult = $_.GetLastResult()
 	$myJobLastSession = $_.FindLastSession()
+	if ($myJobLastSession.WillBeRetried) {
+		$myJobLastState = "Working"
+		$myJobLastResult = "None"
+	} else {
+		$myJobLastState = $_.GetLastState()
+		$myJobLastResult = $_.GetLastResult()
+	}
 	$myJobCreationTime = $myJobLastSession.CreationTime |  get-date -Format "dd.MM.yyyy HH\:mm\:ss"  -ErrorAction SilentlyContinue
 	$myJobEndTime = $myJobLastSession.EndTime |  get-date -Format "dd.MM.yyyy HH\:mm\:ss"  -ErrorAction SilentlyContinue
 	$myJobsText = $myJobsText + ($_.Name -replace "\'","_" -replace " ","_") + "`t" + $_.JobType + "`t" + $myJobLastState + "`t" + $myJobLastResult + "`t" + $myJobCreationTime + "`t" + $myJobEndTime + "`n"

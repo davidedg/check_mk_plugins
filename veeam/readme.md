@@ -13,3 +13,8 @@ v1.1 - fixes:
 - Enhancements to PS console, taken from original plugin in Check_MK 1.2.6p12
 - Fixed broken output on some non-english systems (time separator)
 - Spaces in VM names are now replaced with underscores, to behave better together with VMWare checks
+
+v1.2 - fixes:
+- Now supports "retrying" jobs by ignoring JOBs/VMs if they are going to be retried.
+  For a VM, its previous backup state will be reported.
+  For a JOB, it will be reported as "Working" until its last retry
