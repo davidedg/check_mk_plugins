@@ -21,6 +21,8 @@
 # - Now supports "retrying" jobs by ignoring JOBs/VMs if they are going to be retried.
 #   For a VM, its previous backup state will be reported.
 #   For a JOB, it will be reported as "Working" until its last retry
+# v1.3 - fixes:
+# - VMs backup state was uncorreclty reported also for Backup Copy Jobs, together with Backup Jobs
 
 
 
@@ -69,7 +71,7 @@ $Sessions = Get-VBRBackupSession | Where-Object {($_.JobType -eq "Backup") -and 
 
 # Include Last Session from all backup jobs even if it falls outside search time window
 if ($AlwaysIncludeLastSession -eq $True){
-	$ScheduledJobs | ForEach-Object{
+	$ScheduledJobs | Where-Object {$_.JobType -eq "Backup" } | ForEach-Object{
 		$Sessions += ($_.FindLastSession())
 	}
 }
