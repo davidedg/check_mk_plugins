@@ -1,0 +1,40 @@
+#!/usr/bin/python
+# -*- encoding: utf-8; py-indent-offset: 4 -*-
+
+
+   
+def inventory_lenovostorcenter_raid(info):
+    for line in info:
+        yield line[1], None
+
+def check_lenovostorcenter_raid(item, _no_params, info):
+    states = {
+        "NORMAL"        : 0,
+        "REBUILDING"    : 1,
+        "DEGRADED"      : 1,
+        "REBUILDFS"     : 1,
+        "FAULTED"       : 2,
+    }
+
+    for line in info:
+        raidstate = line[0]
+        state = states[raidstate]
+        if state == 0:
+            infotext = "RAID Status: " + raidstate
+        else:
+            infotext = "RAID Status: " + raidstate + " (!!)"
+        return state, infotext
+
+
+check_info["lenovostorcenter_raid"] = {
+    "check_function"        : check_lenovostorcenter_raid,
+    "inventory_function"    : inventory_lenovostorcenter_raid,
+    "service_description"   : "RAID-%s",
+    "snmp_scan_function"    : lenovostorcenter_scan_function,
+    "snmp_info"             : (".1.3.6.1.4.1.11369.10.4", [
+                                                      1.0, # Raid Status
+                                                      2.0, # Raid Type
+                                                   ]),
+    "includes"              : [ "lenovostorcenter.include" ]
+}
+

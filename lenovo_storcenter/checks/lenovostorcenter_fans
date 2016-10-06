@@ -1,0 +1,29 @@
+#!/usr/bin/python
+# -*- encoding: utf-8; py-indent-offset: 4 -*-
+
+def inventory_lenovostorcenter_fans(info):
+    for id, value in info:
+        params = {}
+        yield id, params
+
+
+def check_lenovostorcenter_fans(item, params, info):
+    for id, value in info:
+        if id == item:
+            rpm = int(value)
+            return 0, "rpm = %s " %rpm
+
+			
+	
+check_info["lenovostorcenter_fans"] = {
+    "check_function"        : check_lenovostorcenter_fans,
+    "inventory_function"    : inventory_lenovostorcenter_fans,
+    "service_description"   : "Fan %s",
+    "snmp_scan_function"    : lenovostorcenter_scan_function,
+    "snmp_info"             : (".1.3.6.1.4.1.11369.10.6.1.1", [
+                                               1, #Fan ID
+                                               3, #Fan RPM
+                                            ]),
+    "includes"              : [ "lenovostorcenter.include", 'fan.include' ],
+	"group"                 : "hw_fans",
+}

@@ -1,0 +1,36 @@
+#!/usr/bin/python
+# -*- encoding: utf-8; py-indent-offset: 4 -*-
+
+factory_settings["lenovostorcenter_temps_defaultlevels"] = {
+    "levels": (45, 50)
+}
+
+def inventory_lenovostorcenter_temps(info):
+    for name, value in info:
+        params = {}
+        yield name, params
+
+
+def check_lenovostorcenter_temps(item, params, info):
+    dev_unit = "c"
+    for name, value in info:
+        if name == item:
+            tempval = float(value)
+            state, infotext, perfdata = check_temperature(tempval, params, "lenovostorcenter_temps_%s" % item, dev_unit)
+            yield state, infotext, perfdata
+
+
+check_info["lenovostorcenter_temps"] = {
+    "check_function"        : check_lenovostorcenter_temps,
+    "inventory_function"    : inventory_lenovostorcenter_temps,
+    "service_description"   : "Temperature %s",
+    "has_perfdata"          : True,
+    "snmp_scan_function"    : lenovostorcenter_scan_function,
+    "snmp_info"             : (".1.3.6.1.4.1.11369.10.6.2.1", [
+                                                      2, #Temp Sensor NAME
+                                                      3, #Temp Sensor VALUE
+                                                   ]),
+    "group"                 : "temperature",
+    "includes"              : [ "lenovostorcenter.include", "temperature.include" ],
+    "default_levels_variable"  : "lenovostorcenter_temps_defaultlevels"	
+}
