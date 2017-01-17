@@ -23,10 +23,10 @@ Example: 393331234567
 You can also specify multiple addresses, separated by comma
 
 
-Then enable a Flexible Custom Notification using `SMS using Skebby.it via https` and use these paramters:
+Then enable a Flexible Custom Notification using `SMS using Skebby.it via https` and use these parameters:
 
 Parameter | Value
--|-
+------------- | -------------
 Username | Your Skebby.it username
 Password | Your Skebby.it password
-SMS Type (optional) | One of: *send_sms, send_sms_basic, **send_sms_classic**, send_sms_classic_report, test_send_sms_classic, test_send_sms_classic_report, test_send_sms_basic*
+SMS Type (optional) | One of: *send_sms, send_sms_basic, `send_sms_classic`, send_sms_classic_report, test_send_sms_classic, test_send_sms_classic_report, test_send_sms_basic*
