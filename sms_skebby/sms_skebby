@@ -1,0 +1,148 @@
+#!/usr/bin/python
+# SMS using Skebby.it via https
+# https://github.com/davidedg/check_mk_plugins
+
+# Credits to https://github.com/Bubelbub/check_mk/tree/master/sms77 for base plugin structure
+
+import os, sys, urllib, urllib2
+__author__ = 'DavideDG'
+
+
+# http://www.skebby.it/business/index/documentation/#sendSMSSection
+
+NET_ERROR = "Network error, unable to send the message"
+SENDER_ERROR = "You can specify only one type of sender, numeric or alphanumeric"
+
+sms_max_len = 160
+
+skebby_sms_methods = [
+  'send_sms',
+  'send_sms_basic',
+  'send_sms_classic',
+  'send_sms_classic_report'
+  'test_send_sms_classic'
+  'test_send_sms_classic_report'
+  'test_send_sms_basic'
+]
+
+skebby_default_method = 'send_sms_classic'
+#skebby_default_method = 'test_send_sms_classic'
+
+
+
+def UrlEncode(recipients):
+    resultString = ''
+    for number in recipients:
+        resultString = resultString + 'recipients[]=' + urllib.quote_plus(number) + '&'
+    return resultString[:-1]
+
+
+def skebbyGatewaySendSMS(username,password,recipients,text,method=skebby_default_method,sender_number='',sender_string='',charset='ISO-8859-1',options={ 'User-Agent' : 'Generic Client' }):
+    url = 'http://gateway.skebby.it/api/send/smseasy/advanced/http.php'
+
+    parameters = {
+        'method' : method,
+        'username' : username,
+        'password' : password,
+        'text' : text
+    }
+
+    if sender_number != '' and sender_string != '' :
+        result = {}
+        result['status'] = 'failed'
+        result['message'] = SENDER_ERROR
+        return result
+
+    if sender_number != '' : parameters['sender_number'] = sender_number
+    if sender_string != '' : parameters['sender_string'] = sender_string
+
+    if charset != 'ISO-8859-1' : parameters['charset'] = 'UTF-8'
+
+    headers = options
+    data = urllib.urlencode(parameters) + '&' + UrlEncode(recipients)
+
+    req = urllib2.Request(url, data, headers)
+    try:
+        response = urllib2.urlopen(req)
+    except urllib2.HTTPError as e:
+        result = {}
+        result['status'] = 'failed'
+        result['code'] = e.code
+        result['message'] = NET_ERROR
+        return result
+    except urllib2.URLError as e:
+        result = {}
+        result['status'] = 'failed'
+        result['message'] = e.reason
+        return result
+
+    resultString = response.read()
+
+    results = resultString.split('&')
+    result = {}
+    for r in results:
+        temp = r.split('=')
+        result[temp[0]] = temp[1]
+
+    return result
+
+
+
+
+def cmk_sendsms():
+
+# VALIDATE SMS RECIPIENT (PAGER ADDRESS)
+    if not os.environ.has_key('NOTIFY_CONTACTPAGER'):
+        sys.stderr.write('Error: No contact pager / telephone number for the contact!\n')
+        sys.exit(1)
+
+    recipients = os.environ['NOTIFY_CONTACTPAGER']
+
+
+# VALIDATE USERNAME/PASSWORD
+    if not os.environ.has_key('NOTIFY_PARAMETER_1') or not os.environ.has_key('NOTIFY_PARAMETER_2'):
+        sys.stderr.write('Error: No username or no password entered!\n')
+        sys.exit(1)
+
+    username = os.environ['NOTIFY_PARAMETER_1']
+    password = os.environ['NOTIFY_PARAMETER_2']
+
+
+# GET SMS METHOD
+    sms_method = os.environ['NOTIFY_PARAMETER_3'] if os.environ.has_key('NOTIFY_PARAMETER_3') and os.environ['NOTIFY_PARAMETER_3'].lower() in skebby_sms_methods else skebby_default_method
+
+
+# PREPARE MESSAGE
+    message = os.environ['NOTIFY_HOSTNAME'] + " "
+    if os.environ['NOTIFY_WHAT'] == 'SERVICE':
+        message += os.environ['NOTIFY_SERVICESTATE'][:2] + " "
+        avail_len = sms_max_len - len(message)
+        message += os.environ['NOTIFY_SERVICEDESC'][:avail_len] + " "
+        avail_len = sms_max_len - len(message)
+        message += os.environ['NOTIFY_SERVICEOUTPUT'][:avail_len]
+    else:
+        message += "is " + os.environ['NOTIFY_HOSTSTATE']
+
+
+# PREPARE RECIPIENT LIST
+    rcptlist = recipients.split(',')
+
+
+# SEND SMS
+    result = skebbyGatewaySendSMS(username,password,rcptlist,message, method=sms_method)
+
+
+# VALIDATE RESULT
+    if result['status'] == 'failed':
+        print 'SMS Send Failed'
+        try:
+            print 'Code: ' + str(result['code'])
+        except KeyError:
+            pass
+        print 'Description: ' + str(result['message'])
+        sys.exit(1)
+
+
+##############################################################
+
+cmk_sendsms()
