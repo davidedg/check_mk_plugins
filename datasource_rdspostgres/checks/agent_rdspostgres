@@ -1,0 +1,8 @@
+#!/usr/bin/python
+# -*- encoding: utf-8; py-indent-offset: 4 -*-
+
+def agent_rdspostgres_arguments(params, hostname, ipaddress):
+    # User, Password
+    return "'%s' %s %s" % ( ipaddress, quote_shell_string(params[0]), quote_shell_string(params[1]) )
+
+special_agent_info['rdspostgres'] = agent_rdspostgres_arguments
