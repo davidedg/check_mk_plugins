@@ -23,6 +23,8 @@
 #   For a JOB, it will be reported as "Working" until its last retry
 # v1.3 - fixes:
 # - VMs backup state was uncorreclty reported also for Backup Copy Jobs, together with Backup Jobs
+# v1.4 - Compatibility with Veeam 9.5U3:
+# - Added support for changed attributes Progress.StartTimeLocal and Progress.StopTimeLocal
 
 
 
@@ -55,6 +57,23 @@ if (-not (Get-PSSnapin $snapin -ErrorAction "SilentlyContinue"))
 		Write-Error "VeeamPSSnapIn NOT REGISTERED"
 	}
 }
+
+function IsVeeamTimeNewFormat {
+    if($script:VeeamTimeNewFormat -ne $null) { # cached result
+        return $script:VeeamTimeNewFormat
+    } else { # test for attribute "StartTimeLocal", otherwise assume the old "StartTime" is present
+        if(Get-Member -inputobject $args[0].Progress -name "StartTimeLocal" -Membertype Properties){
+            $script:VeeamTimeNewFormat = $True # cache the result
+            return $True
+        } else {
+            $script:VeeamTimeNewFormat = $false # cache the result
+            return $false
+        }
+    }
+}
+
+
+
 
 # Error Handling is still poor - just catch for totally unexpected errors.
 # If any error occurs during check, a field might just remain blank
@@ -91,9 +110,16 @@ $SessionsTasks | ForEach-Object {
 	# - backup session will be retried, but this particular VM will *not* be retried (since it's already OK/warning)
 	if (     (! $_.JobSess.WillBeRetried)      -or      ( ($_.JobSess.WillBeRetried)          -and        ($_.Status -ne "Failed")      )    ) {
 		if ($vms.ContainsKey($_.Name)) {
-			if ($_.Progress.StartTime -gt $vms[$_.Name].Progress.StartTime) { # Having sorted before, this will seldom execute
-				$vms[$_.Name] = $_ 	# Overwrite with most recent one
-			}
+            if(IsVeeamTimeNewFormat($_)){
+                if ($_.Progress.StartTimeLocal -gt $vms[$_.Name].Progress.StartTimeLocal) { # Having sorted before, this will seldom execute
+                    $vms[$_.Name] = $_ 	# Overwrite with most recent one
+                }
+            }
+            else {
+                if ($_.Progress.StartTime -gt $vms[$_.Name].Progress.StartTime) { # Having sorted before, this will seldom execute
+                    $vms[$_.Name] = $_ 	# Overwrite with most recent one
+                }
+            }
 		}
 		else {
 			$vms.Add($_.Name, $_)	# Add VM to hash
@@ -125,8 +151,13 @@ $ScheduledJobs | ForEach-Object {
 $myTaskText = "" # Create new text string for backup tasks section.
 # $vms.GetEnumerator() | Sort-Object Name | ForEach-Object { ## For DEBUG purposes, you may want to sort output by VM (hash key name)
 $vms.GetEnumerator() | ForEach-Object {
-	$myTaskStartTime = $_.value.Progress.StartTime |  get-date -Format "dd.MM.yyyy HH\:mm\:ss"  -ErrorAction SilentlyContinue
-	$myTaskStopTime = $_.value.Progress.StopTime |  get-date -Format "dd.MM.yyyy HH\:mm\:ss"  -ErrorAction SilentlyContinue
+    if(IsVeeamTimeNewFormat($_.value)){
+        $myTaskStartTime = $_.value.Progress.StartTimeLocal |  get-date -Format "dd.MM.yyyy HH\:mm\:ss"  -ErrorAction SilentlyContinue
+    	$myTaskStopTime  = $_.value.Progress.StopTimeLocal  |  get-date -Format "dd.MM.yyyy HH\:mm\:ss"  -ErrorAction SilentlyContinue
+    } else {
+        $myTaskStartTime = $_.value.Progress.StartTime |  get-date -Format "dd.MM.yyyy HH\:mm\:ss"  -ErrorAction SilentlyContinue
+    	$myTaskStopTime  = $_.value.Progress.StopTime  |  get-date -Format "dd.MM.yyyy HH\:mm\:ss"  -ErrorAction SilentlyContinue
+    }
 	# Result is a value of type System.TimeStamp. I'm sure there is a more elegant way of formatting the output:
 	$myTaskDuration = "{0:D2}" -f $_.value.Progress.duration.Days + ":" + "{0:D2}" -f $_.value.Progress.duration.Hours + ":" + "{0:D2}" -f $_.value.Progress.duration.Minutes + ":" + "{0:D2}" -f $_.value.Progress.duration.Seconds
 
@@ -152,7 +183,7 @@ Write-host $myJobsText
 Write-host $myTaskText
 } # END OF TRY BLOCK
 
-# CATCH only totally impossible catastrophic errors
+# CATCH catastrophic errors
 catch
 {
 $errMsg = $_.Exception.Message

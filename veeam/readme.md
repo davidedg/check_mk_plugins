@@ -18,3 +18,9 @@ v1.2 - fixes:
 - Now supports "retrying" jobs by ignoring JOBs/VMs if they are going to be retried.
   For a VM, its previous backup state will be reported.
   For a JOB, it will be reported as "Working" until its last retry
+
+v1.3 - fixes:
+- VMs backup state was uncorreclty reported also for Backup Copy Jobs, together with Backup Jobs
+
+v1.4 - Compatibility with Veeam 9.5U3:
+- Added support for changed attributes Progress.StartTimeLocal and Progress.StopTimeLocal
