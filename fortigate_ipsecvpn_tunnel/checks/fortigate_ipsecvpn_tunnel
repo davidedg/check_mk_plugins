@@ -1,0 +1,76 @@
+#!usr/bin/python
+# -*- encoding: utf-8; py-indent-offset: 4 -*-
+
+
+fortigate_ipsecvpn_tunnel_ent_status_map = { '1': 'down', '2': 'up' }
+fortigate_ipsecvpn_tunnel_status2nagios_map = { 'up': 0, 'down': 2, }
+
+
+def parse_fortigate_vpn_tunnel(info):
+    parsed = {}
+    for ph2_name, ph2_in, ph2_out, ph2_state in info:
+        parsed.setdefault(ph2_name, {'in' : 0, 'out' : 0, 'state' : ph2_state})
+        if ph2_in:
+            parsed[ph2_name]['in'] += float(ph2_in)
+        if ph2_out:
+            parsed[ph2_name]['out'] += float(ph2_out)
+    return parsed
+
+
+
+def inventory_fortigate_ipsecvpn_tunnel(parsed):
+    return [ (ph2_name, {}) for ph2_name in parsed ]
+
+
+
+def check_fortigate_ipsecvpn_tunnel(item, params, parsed):
+    p_missing_state = params.get('missingstate', 2) # If a tunnel is missing, consider it CRIT if not otherwise overridden
+
+    if item in parsed:
+        now  = time.time()
+        data = parsed[item]
+
+        # get perf data
+        ph2_in = data['in']
+        ph2_out = data['out']
+        ph2_in_rate  = get_rate('fortigate_ipsecvpn_tunnel_phase_2_in.%s'  % item, now, ph2_in)
+        ph2_out_rate  = get_rate('fortigate_ipsecvpn_tunnel_phase_2_out.%s'  % item, now, ph2_out)
+
+        # get tunnel status
+        tun_status = fortigate_ipsecvpn_tunnel_status2nagios_map[fortigate_ipsecvpn_tunnel_ent_status_map[data['state']]]
+        # override from params
+        override_text = ''
+        for p_tun_name, p_tun_assumedstatus in params.get('tunnels', []):
+            if item == p_tun_name:
+                tun_status = p_tun_assumedstatus
+                override_text = '(OVERRIDEN)'
+
+        # Set output
+        infotexts = ['%s, IN: %s/s, OUT: %s/s' % \
+                     (override_text,
+                      get_bytes_human_readable(ph2_in_rate),
+                      get_bytes_human_readable(ph2_out_rate))]
+
+        return tun_status, ", ".join(infotexts), \
+               [('if_in_octets',  ph2_in_rate),
+                ('if_out_octets', ph2_out_rate)]
+
+    return p_missing_state, "Tunnel is missing", [('if_in_octets', 0), ('if_out_octets', 0)]
+
+
+
+check_info["fortigate_ipsecvpn_tunnel"] = {
+    "parse_function"      : parse_fortigate_vpn_tunnel,
+    "inventory_function"  : inventory_fortigate_ipsecvpn_tunnel,
+    "check_function"      : check_fortigate_ipsecvpn_tunnel,
+    "service_description" : "VPN_IPSec_%s",
+    "has_perfdata"        : True,
+    "snmp_scan_function"  : lambda oid: ".1.3.6.1.4.1.12356.101.1" in oid(".1.3.6.1.2.1.1.2.0"),
+    "snmp_info"           : (".1.3.6.1.4.1.12356.101.12.2.2.1", [
+                                    "3",     # fgVpnTunEntPhase2Name
+                                    "18",    # fgVpnTunEntInOctets
+                                    "19",    # fgVpnTunEntOutOctets
+                                    "20",    # fgVpnTunEntStatus
+                            ]),
+    "group"                 : "fortigate_ipsecvpn_tunnel",
+}
