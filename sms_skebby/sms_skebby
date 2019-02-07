@@ -1,7 +1,7 @@
 #!/usr/bin/python
 # SMS using Skebby.it via https
 # https://github.com/davidedg/check_mk_plugins
-
+# v1.1: Skebby.it implemented HTTPs server-side, changed url
 # Credits to https://github.com/Bubelbub/check_mk/tree/master/sms77 for base plugin structure
 
 import os, sys, urllib, urllib2
@@ -38,7 +38,7 @@ def UrlEncode(recipients):
 
 
 def skebbyGatewaySendSMS(username,password,recipients,text,method=skebby_default_method,sender_number='',sender_string='',charset='ISO-8859-1',options={ 'User-Agent' : 'Generic Client' }):
-    url = 'http://gateway.skebby.it/api/send/smseasy/advanced/http.php'
+    url = 'https://gateway.skebby.it/api/send/smseasy/advanced/http.php'
 
     parameters = {
         'method' : method,
