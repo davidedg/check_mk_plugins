@@ -1,10 +1,8 @@
 #!/usr/bin/python
 # -*- encoding: utf-8; py-indent-offset: 4 -*-
-# v1.1 - fixed OIDs and added some readings:
+# v1.2 - removed unused python imports, thanks to Simon Betz
+# v1.1 - fixed OIDs and added some readings
 # Author: Davide Del Grande <davide.delgrande _ lanewan.it> / <delgrande.davide _ gmail.com>
-
-import socket
-import time
 
 # wtpstate: connection state of a WTP to AC :
 # other(0), offLine(1), onLine(2), downloadingImage(3), connectedImage(4)
