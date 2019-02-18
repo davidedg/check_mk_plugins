@@ -18,6 +18,9 @@ Install the package.
 - Performance Metrics: State, CPU, RAM, Traffic In/Out
 - Alerts: only on State
 
+## Version 1.2 ##
+Removed unused python imports, thanks to Simon Betz
+
 ## Version 1.1 ##
 Previous version 1.0 failed to work on newer fortigate firmwares
 This is tested only on new firmwares (5.4+) 
