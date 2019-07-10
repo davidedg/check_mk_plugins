@@ -5,7 +5,7 @@ Author: Davide Del Grande <davide.delgrande _ lanewan.it> / <delgrande.davide _ 
 
 This is supposed to run as a OMD site cron job (`~/etc/cron.d/aws_piggyback_nametag_symlinks`) every minute, eg:
 ```
- \* \* \* \* \* $OMD_ROOT/local/lib/aws_piggyback_nametag_symlinks.py >/dev/null 2>&1
+ * * * * * $OMD_ROOT/local/lib/aws_piggyback_nametag_symlinks.py >/dev/null 2>&1
 ```
 In CheckMK 1.6, section "`ec2_labels`" already contains the aws tags associated with the instances, so they are extracted without api calls.
 In CheckMK 1.5, this section is not present, so we extract it via AWS api call.
