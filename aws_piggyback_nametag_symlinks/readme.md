@@ -23,4 +23,3 @@ The script will:
 
 
 If you name CMK hosts for EC2 with their Name Tags, at next discovery, it should find the aws data.
-This is working
