@@ -11,7 +11,7 @@ fortigate_wtp_status_map = { '0': 'Other', '1': 'Offline', '2': 'Online', '3': '
 fortigate_wtp_status2nagios_map = { 'Online': 0, 'DownloadingImage': 1, 'ConnectedImage': 1, 'Offline': 2, 'Other': 2 }
 
 
-def inventory_fortigate_wtp(checkname, info):
+def inventory_fortigate_wtp(info):
     if info and len(info) > 0 and info[0] != '':
         inventory = []
         for wtpid, wtpconnstate, wtpstations, wtprx, wtptx, wtpcpu, wtpmem, wtpname in info:
