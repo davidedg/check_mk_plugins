@@ -18,6 +18,9 @@ Install the package.
 - Performance Metrics: State, CPU, RAM, Traffic In/Out
 - Alerts: only on State
 
+## Version 1.3 ##
+Compatibility with CheckMK 1.6
+
 ## Version 1.2 ##
 Removed unused python imports, thanks to Simon Betz
 
