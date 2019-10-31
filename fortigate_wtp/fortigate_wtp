@@ -1,5 +1,6 @@
 #!/usr/bin/python
 # -*- encoding: utf-8; py-indent-offset: 4 -*-
+# v1.3 - removed first parameter at inventory call | SBI
 # v1.2 - removed unused python imports, thanks to Simon Betz
 # v1.1 - fixed OIDs and added some readings
 # Author: Davide Del Grande <davide.delgrande _ lanewan.it> / <delgrande.davide _ gmail.com>
