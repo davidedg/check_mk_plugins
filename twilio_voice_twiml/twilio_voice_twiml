@@ -1,0 +1,150 @@
+#!/usr/bin/env python
+# Twilio Voice call with TwiML syntax
+# https://github.com/davidedg/check_mk_plugins
+__author__ = 'DavideDG'
+__version__ = '1.0.0'
+
+import os, sys, re, json
+import cmk.password_store
+from twilio.rest import Client as TwilioRESTClient
+
+
+########################################################################################################
+def twilioVoiceCall(account_sid, auth_token, phone_from, phone_to, **kwargs):
+########################################################################################################
+# https://www.twilio.com/docs/voice/make-calls?code-sample=code-make-an-outbound-call-to-a-phone-number&code-language=Node.js&code-sdk-version=3.x#linkcode
+    try:
+        twilioclient = TwilioRESTClient(account_sid, auth_token)
+        return twilioclient.calls.create(
+            from_=phone_from,
+            to=phone_to,
+            **kwargs
+        )
+
+    except Exception, err:
+        sys.stderr.write("%s" % err)
+        sys.exit(1)
+
+
+########################################################################################################
+def get_twilio_credentials(param_credentials):
+########################################################################################################
+# PARAMETER_CREDENTIALS can be in one of the following formats:
+# u'plain\tACCOUNT_SID:AUTH_TOKEN' -> colon concatenated credentials in plain text, ie: ACCOUNT_SID:AUTH_KEY
+# u'env'  -> credentials must be fetched from env vars "TWILIO_ACCOUNT_SID" and "TWILIO_AUTH_TOKEN"
+# u'jsonstore\tprofile1' -> a single word, representing a profile name in a json-formatted configuration file in ~/twilio.secrets
+# u'cmkstore\tcmk_store_name' -> colon concatenated credentials to be retrieved from CMK password store
+
+    v = param_credentials.split()
+
+    if len(v) == 2: # plain / jsonstore / cmkstore
+        if v[0] == 'plain':
+            return v[1].split(':')
+        elif v[0] == 'cmkstore':
+            z = cmk.password_store.load().get(v[1])
+            return z.split(':')
+        elif v[0] == 'jsonstore': ## lookup profile in ~/twilio.secrets
+            # get Check_MK root directory
+            HOMEDIR = os.getenv('HOME','~')
+            HOMEDIR = os.getenv('OMD_ROOT',HOMEDIR)
+            TWILIOSECRETSFILEPATH = os.path.join(HOMEDIR, 'twilio.secrets')
+            try:
+                with open(TWILIOSECRETSFILEPATH) as twiliosecrets_json_file:
+                    twilio_secrets_json = json.load(twiliosecrets_json_file)
+                return twilio_secrets_json[v[1]]['account_sid'],twilio_secrets_json[v[1]]['auth_token']
+            except Exception, err:
+                sys.stderr.write('Error loading from twilio.secrets file!\n')
+                sys.stderr.write("%s" % err)
+                sys.exit(1)
+
+        else:
+            sys.stderr.write('Error (fatal) unexpected condition!\n')
+            sys.exit(1)
+    elif len(v) == 1 and v[0] == 'env':
+        return os.environ['TWILIO_ACCOUNT_SID'],os.environ['TWILIO_AUTH_TOKEN']
+    else:
+        sys.stderr.write('Error (fatal) unexpected condition!\n')
+        sys.exit(1)
+
+
+#######################################################################################################
+def substitute_context(template, context):
+#######################################################################################################
+    # First replace all known variables
+    for varname, value in context.items():
+        template = template.replace('$'+varname+'$', value)
+
+    if re.search(r"\$[A-Z_][A-Z_0-9]*\$", template):
+        # Second pass to replace nested variables inside e.g. SERVICENOTESURL
+        for varname, value in context.items():
+            template = template.replace('$'+varname+'$', value)
+
+    # Remove the rest of the variables and make them empty
+    template = re.sub("\$[A-Z_][A-Z_0-9]*\$", "", template)
+    return template
+
+
+#######################################################################################################
+def main():
+########################################################################################################
+
+    # GET CONFIGURATION FROM ENVIRONMENT VARIABLES
+    context = {
+        var[7:]: value.decode('utf-8')
+        for var, value in os.environ.iteritems()
+        if var.startswith('NOTIFY_')
+    }
+
+
+    # VALIDATE RECIPIENT (PAGER ADDRESS)
+    if not context.get("CONTACTPAGER"):
+        sys.stderr.write('Error: No telephone number for the contact!\n')
+        sys.exit(1)
+
+    phone_to = substitute_context(context.get("CONTACTPAGER"),context)
+
+
+
+    # VALIDATE SOURCE NUMBER
+    if context.get("PARAMETER_SOURCE_PHONE","none") == "none":
+        sys.stderr.write('Error: Missing Source Phone Number!\n')
+        sys.exit(1)
+
+    phone_from = substitute_context(context.get("PARAMETER_SOURCE_PHONE"),context)
+
+
+
+    # GET TWILIO CREDENTIALS
+    account_sid, auth_token = get_twilio_credentials(context.get('PARAMETER_CREDENTIALS'))
+    if not (account_sid and auth_token):
+        sys.stderr.write('Error: Missing Credentials!\n')
+        sys.exit(1)
+    account_sid = substitute_context(account_sid,context)
+    auth_token = substitute_context(auth_token,context)
+
+
+
+    # GET TWILIO PARAMETERS
+    params_string = context.get("PARAMETER_TWILIO_PARAMS","none")
+    if params_string == "none":
+        sys.stderr.write('Error: Missing Twilio Request Parameters!\n')
+        sys.exit(1)
+    params_string = substitute_context(params_string,context)
+
+
+    params = dict([ p.split('=') for p in params_string.split(',') ])
+    # Original:         "url='http://demo.twilio.com/docs/voice.xml',record=false"
+    # Inside Split:     ["url='http://demo.twilio.com/docs/voice.xml'", 'record=false']
+    # List Comp. Split: [['url', "'http://demo.twilio.com/docs/voice.xml'"], ['record', 'false']]
+    # Dict:             {'url': "'http://demo.twilio.com/docs/voice.xml'", 'record': 'false'}
+
+
+
+    # MAKE VOICE CALL
+    twilioVoiceCall(account_sid, auth_token, phone_from, phone_to, **params)
+
+
+
+
+if __name__ == '__main__':
+    sys.exit(main())
