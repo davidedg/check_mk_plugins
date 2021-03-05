@@ -2,7 +2,7 @@
 # Twilio Voice call with TwiML syntax
 # https://github.com/davidedg/check_mk_plugins
 __author__ = 'DavideDG'
-__version__ = '1.0.0'
+__version__ = '1.1.0'
 
 import os, sys, re, json
 import cmk.password_store
