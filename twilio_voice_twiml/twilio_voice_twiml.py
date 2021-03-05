@@ -39,11 +39,12 @@ register_notification_parameters(
                             regex_error=_("Phone Number must conform to E.164 format"),
                             size=20
         )),
-        ("twilio_params", TextAscii(
+        ("twilio_params", TextAreaUnicode(
                             title = _("Twilio Programmable Voice Request Parameters"),
                             monospaced = True,
-                            size = 80,
-                            default_value = "twiml=<Response><Say>Please check monitoring system.</Say></Response>,record=false",
+                            cols = 80,
+                            rows = 8,
+                            default_value = "record=false\ntwiml=<Response><Say>Please check monitoring system.</Say></Response>",
                             help=_("See <a href=\"https://www.twilio.com/docs/voice/twiml#request-parameters\" target=\"_blank\">Twilio Docs</a>."
                                     "<br>" "Note: these Request Parameters must not be specified here: <tt>From, To, AccountSid</tt>"
                                     "<br>" "Example:"
