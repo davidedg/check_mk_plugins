@@ -132,11 +132,11 @@ def main():
     params_string = substitute_context(params_string,context)
 
 
-    params = dict([ p.split('=') for p in params_string.split(',') ])
-    # Original:         "url='http://demo.twilio.com/docs/voice.xml',record=false"
-    # Inside Split:     ["url='http://demo.twilio.com/docs/voice.xml'", 'record=false']
-    # List Comp. Split: [['url', "'http://demo.twilio.com/docs/voice.xml'"], ['record', 'false']]
-    # Dict:             {'url': "'http://demo.twilio.com/docs/voice.xml'", 'record': 'false'}
+    params = dict([ p.split('=') for p in params_string.splitlines() ])
+    # Original:         "record=false\nurl='http://demo.twilio.com/docs/voice.xml'"
+    # Inside Split:     ['record=false', "url='http://demo.twilio.com/docs/voice.xml'"]
+    # List Comp. Split: [['record', 'false'], ['url', "'http://demo.twilio.com/docs/voice.xml'"]]
+    # Dict:             {'record': 'false', 'url': "'http://demo.twilio.com/docs/voice.xml'"}
 
 
 
