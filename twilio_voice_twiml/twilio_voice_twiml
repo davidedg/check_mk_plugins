@@ -1,13 +1,17 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # Twilio Voice call with TwiML syntax
 # https://github.com/davidedg/check_mk_plugins
 __author__ = 'DavideDG'
-__version__ = '1.1.0'
+__version__ = '2.0.0'
 
 import os, sys, re, json
-import cmk.password_store
+from cmk.notification_plugins import utils
+from cmk.notification_plugins.utils import retrieve_from_passwordstore
 from twilio.rest import Client as TwilioRESTClient
 
+
+opt_debug = '-d' in sys.argv
+if opt_debug: import pprint
 
 ########################################################################################################
 def twilioVoiceCall(account_sid, auth_token, phone_from, phone_to, **kwargs):
@@ -21,9 +25,10 @@ def twilioVoiceCall(account_sid, auth_token, phone_from, phone_to, **kwargs):
             **kwargs
         )
 
-    except Exception, err:
-        sys.stderr.write("%s" % err)
+    except Exception as e:
+        sys.stderr.write("%s" % e)
         sys.exit(1)
+
 
 
 ########################################################################################################
@@ -31,30 +36,33 @@ def get_twilio_credentials(param_credentials):
 ########################################################################################################
 # PARAMETER_CREDENTIALS can be in one of the following formats:
 # u'plain\tACCOUNT_SID:AUTH_TOKEN' -> colon concatenated credentials in plain text, ie: ACCOUNT_SID:AUTH_KEY
-# u'env'  -> credentials must be fetched from env vars "TWILIO_ACCOUNT_SID" and "TWILIO_AUTH_TOKEN"
-# u'jsonstore\tprofile1' -> a single word, representing a profile name in a json-formatted configuration file in ~/twilio.secrets
-# u'cmkstore\tcmk_store_name' -> colon concatenated credentials to be retrieved from CMK password store
+# u'env'                           -> credentials must be fetched from env vars "TWILIO_ACCOUNT_SID" and "TWILIO_AUTH_TOKEN"
+# u'jsonstore\tprofile1'           -> a single word, representing a profile name in a json-formatted configuration file in ~/.twilio.secrets
+# u'store\tcmk_store_name'         -> colon concatenated credentials to be retrieved from CMK password store
 
     v = param_credentials.split()
+    if opt_debug: sys.stderr.write("%s" % pprint.pprint(v))
 
-    if len(v) == 2: # plain / jsonstore / cmkstore
+    if len(v) == 2: # plain / jsonstore / store
         if v[0] == 'plain':
             return v[1].split(':')
-        elif v[0] == 'cmkstore':
-            z = cmk.password_store.load().get(v[1])
+        elif v[0] == 'store':
+            z = retrieve_from_passwordstore(param_credentials)
             return z.split(':')
-        elif v[0] == 'jsonstore': ## lookup profile in ~/twilio.secrets
+        elif v[0] == 'jsonstore': ## lookup profile in ~/.twilio.secrets
             # get Check_MK root directory
             HOMEDIR = os.getenv('HOME','~')
             HOMEDIR = os.getenv('OMD_ROOT',HOMEDIR)
-            TWILIOSECRETSFILEPATH = os.path.join(HOMEDIR, 'twilio.secrets')
+            TWILIOSECRETSFILEPATH = os.path.join(HOMEDIR, '.twilio.secrets')
+            if opt_debug: sys.stderr.write("%s" % pprint.pprint(TWILIOSECRETSFILEPATH))
             try:
                 with open(TWILIOSECRETSFILEPATH) as twiliosecrets_json_file:
                     twilio_secrets_json = json.load(twiliosecrets_json_file)
+                    if opt_debug: sys.stderr.write("%s" % pprint.pprint(twilio_secrets_json))
                 return twilio_secrets_json[v[1]]['account_sid'],twilio_secrets_json[v[1]]['auth_token']
-            except Exception, err:
-                sys.stderr.write('Error loading from twilio.secrets file!\n')
-                sys.stderr.write("%s" % err)
+            except Exception as e:
+                sys.stderr.write('Error loading from twilio secrets file!\n')
+                sys.stderr.write("%s" % e)
                 sys.exit(1)
 
         else:
@@ -68,32 +76,12 @@ def get_twilio_credentials(param_credentials):
 
 
 #######################################################################################################
-def substitute_context(template, context):
-#######################################################################################################
-    # First replace all known variables
-    for varname, value in context.items():
-        template = template.replace('$'+varname+'$', value)
-
-    if re.search(r"\$[A-Z_][A-Z_0-9]*\$", template):
-        # Second pass to replace nested variables inside e.g. SERVICENOTESURL
-        for varname, value in context.items():
-            template = template.replace('$'+varname+'$', value)
-
-    # Remove the rest of the variables and make them empty
-    template = re.sub("\$[A-Z_][A-Z_0-9]*\$", "", template)
-    return template
-
-
-#######################################################################################################
 def main():
 ########################################################################################################
 
     # GET CONFIGURATION FROM ENVIRONMENT VARIABLES
-    context = {
-        var[7:]: value.decode('utf-8')
-        for var, value in os.environ.iteritems()
-        if var.startswith('NOTIFY_')
-    }
+    context = utils.collect_context()
+    if opt_debug: sys.stderr.write("%s" % pprint.pprint(context))
 
 
     # VALIDATE RECIPIENT (PAGER ADDRESS)
@@ -101,7 +89,8 @@ def main():
         sys.stderr.write('Error: No telephone number for the contact!\n')
         sys.exit(1)
 
-    phone_to = substitute_context(context.get("CONTACTPAGER"),context)
+    phone_to = utils.substitute_context(context.get("CONTACTPAGER"),context)
+    if opt_debug: sys.stderr.write("%s" % pprint.pprint(phone_to))
 
 
 
@@ -110,7 +99,8 @@ def main():
         sys.stderr.write('Error: Missing Source Phone Number!\n')
         sys.exit(1)
 
-    phone_from = substitute_context(context.get("PARAMETER_SOURCE_PHONE"),context)
+    phone_from = utils.substitute_context(context.get("PARAMETER_SOURCE_PHONE"),context)
+    if opt_debug: sys.stderr.write("%s" % pprint.pprint(phone_from))
 
 
 
@@ -119,9 +109,11 @@ def main():
     if not (account_sid and auth_token):
         sys.stderr.write('Error: Missing Credentials!\n')
         sys.exit(1)
-    account_sid = substitute_context(account_sid,context)
-    auth_token = substitute_context(auth_token,context)
+    account_sid = utils.substitute_context(account_sid,context)
+    auth_token = utils.substitute_context(auth_token,context)
 
+    if opt_debug: sys.stderr.write("%s" % pprint.pprint(account_sid))
+    if opt_debug: sys.stderr.write("%s" % pprint.pprint(auth_token))
 
 
     # GET TWILIO PARAMETERS
@@ -129,7 +121,7 @@ def main():
     if params_string == "none":
         sys.stderr.write('Error: Missing Twilio Request Parameters!\n')
         sys.exit(1)
-    params_string = substitute_context(params_string,context)
+    params_string = utils.substitute_context(params_string,context)
 
 
     params = dict([ p.split('=') for p in params_string.splitlines() ])
@@ -137,13 +129,11 @@ def main():
     # Inside Split:     ['record=false', "url='http://demo.twilio.com/docs/voice.xml'"]
     # List Comp. Split: [['record', 'false'], ['url', "'http://demo.twilio.com/docs/voice.xml'"]]
     # Dict:             {'record': 'false', 'url': "'http://demo.twilio.com/docs/voice.xml'"}
-
+    if opt_debug: sys.stderr.write("%s" % pprint.pprint(params))
 
 
     # MAKE VOICE CALL
-    twilioVoiceCall(account_sid, auth_token, phone_from, phone_to, **params)
-
-
+    if not opt_debug: twilioVoiceCall(account_sid, auth_token, phone_from, phone_to, **params)
 
 
 if __name__ == '__main__':
