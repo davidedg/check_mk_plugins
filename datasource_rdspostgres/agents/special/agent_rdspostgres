@@ -1,5 +1,8 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- encoding: utf-8; py-indent-offset: 4 -*-
+__author__ = 'DavideDG'
+__version__ = '2.0.0'
+
 import sys
 from time import time
 
@@ -27,7 +30,7 @@ def psql_convert_tuple(t):
 ## PsycoPG module
 try:
     import psycopg2
-except Exception, e:
+except Exception as e:
     sys.stderr.write("%s\n" % e)
     sys.exit(2)
 
@@ -43,18 +46,20 @@ except:
     sys.exit(3)
 
 
+
+
 ## Databases connection to postgres database ## use this section to measure connection time, too
 try:
     pgconntime_start = time()
     dbobj = psycopg2
     db_connection = dbobj.connect(host=db_host, port=db_port, database='postgres', user=db_user, password=db_pass,  connect_timeout=5 )
     db_cursor = db_connection.cursor()
-    q = "SELECT version();"
+    q = "SELECT version() AS v;"
     db_cursor.execute(q)
     pg_versionbanner = db_cursor.fetchone()[0]
     pgconntime_end = time()
     pg_conntime = pgconntime_end - pgconntime_start
-except Exception, e:
+except Exception as e:
     sys.stderr.write("%s\n" % e)
     sys.exit(5)
 
@@ -67,86 +72,116 @@ pg_versionnumber = db_connection.server_version
 
 
 def print_databases():
-    print "[databases_start]"
-    print "\n".join(db[0] for db in databases)
-    print "[databases_end]"
+    print("[databases_start]")
+    print("\n".join(db[0] for db in databases))
+    print("[databases_end]")
 
 
 def postgres_sessions():
-    print "<<<postgres_sessions>>>"
-    q = "select column_name from information_schema.columns where table_name='pg_stat_activity' and column_name in ('query','current_query');"
-    db_cursor.execute(q)
-    qname = db_cursor.fetchone()[0] # Postgres 9.2 uses 'query' instead of 'current_query'
-    q = "select %s = '<IDLE>', count(*) from pg_stat_activity group by (%s = '<IDLE>');" % (qname, qname)
+    print("<<<postgres_sessions>>>")
+
+    if pg_versionnumber >= 90200: # > 9.2.0
+        row, idle = "state", "'idle'"
+    else:
+        row, idle = "current_query", "'<IDLE>'"
+    condition = "%s = %s" % (row, idle)
+    q = ("SELECT %s, count(*) FROM pg_stat_activity "
+         "WHERE %s IS NOT NULL GROUP BY (%s);") % (condition, row, condition)
     db_cursor.execute(q)
     output = db_cursor.fetchone()
-    print "%s %d" % (psql_bool[output[0]], output[1])
-    print "t 0"
+    print("%s %d" % (psql_bool[output[0]], output[1]))
+
+    # line with number of idle sessions is sometimes missing This can lead
+    # to an altogether empty section and thus the check disappearing.
+    output = db_cursor.fetchone()
+    if output:
+        print("%s %d" % (psql_bool[output[0]], output[1]))
+    else:
+        print("t 0")
 
 
 def postgres_stat_database():
-    print "<<<postgres_stat_database:sep(59)>>>"
-    q = "select datid, datname, numbackends, xact_commit, xact_rollback, blks_read, blks_hit, tup_returned, tup_fetched, tup_inserted, tup_updated, tup_deleted, pg_database_size(datname) datsize from pg_stat_database where datname != 'rdsadmin';"
+    print("<<<postgres_stat_database:sep(59)>>>")
+    q = ("SELECT datid, datname, numbackends, xact_commit, xact_rollback, blks_read, "
+         "blks_hit, tup_returned, tup_fetched, tup_inserted, tup_updated, tup_deleted, "
+         "pg_database_size(datname) AS datsize FROM pg_stat_database where datname != 'rdsadmin';")
     db_cursor.execute(q)
     column_names = [desc[0] for desc in db_cursor.description]
-    print ";".join(column_names)
+    print(";".join(column_names))
     for row in db_cursor:
-        print ";".join(str(x) for x in row)
+        print(";".join(str(x) for x in row))
 
 
 def postgres_locks():
-    print "<<<postgres_locks:sep(59)>>>"
+    print("<<<postgres_locks:sep(59)>>>")
     print_databases()
-    q = "SELECT datname, granted, mode FROM pg_locks l RIGHT JOIN pg_database d ON (d.oid=l.database) WHERE datname != 'rdsadmin' AND d.datallowconn;"
+    q = ("SELECT datname, granted, mode FROM pg_locks l RIGHT "
+         "JOIN pg_database d ON (d.oid=l.database) WHERE datname != 'rdsadmin' AND d.datallowconn;")
     db_cursor.execute(q)
     column_names = [desc[0] for desc in db_cursor.description]
-    print ";".join(column_names)
+    print(";".join(column_names))
     for row in db_cursor:
-        print ";".join(str(x) for x in psql_convert_tuple(row))
+        print(";".join(str(x) for x in psql_convert_tuple(row)))
 
 
 def postgres_query_duration():
     # Querytime
-    print "<<<postgres_query_duration:sep(59)>>>"
+    print("<<<postgres_query_duration:sep(59)>>>")
     print_databases()
     if pg_versionnumber >= 90200: # >= 9.2.0
-        q = "SELECT datname, datid, usename, client_addr, state AS state, COALESCE(ROUND(EXTRACT(epoch FROM now()-query_start)),0) AS seconds, pid, regexp_replace(query, E'[\\n\\r\\u2028]+', ' ', 'g' ) AS current_query FROM pg_stat_activity WHERE (query_start IS NOT NULL AND (state NOT LIKE 'idle%' OR state IS NULL)) ORDER BY query_start, pid DESC;"
+        querytime_sql_cmd = ("SELECT datname, datid, usename, client_addr, state AS state, "
+                             "COALESCE(ROUND(EXTRACT(epoch FROM now()-query_start)),0) "
+                             "AS seconds, pid, "
+                             "regexp_replace(query, E'[\\n\\r\\u2028]+', ' ', 'g' ) "
+                             "AS current_query FROM pg_stat_activity "
+                             "WHERE (query_start IS NOT NULL AND "
+                             "(state NOT LIKE 'idle%' OR state IS NULL)) "
+                             "ORDER BY query_start, pid DESC;")
     else:
-        q = "SELECT datname, datid, usename, client_addr, '' AS state,    COALESCE(ROUND(EXTRACT(epoch FROM now()-query_start)),0) AS seconds, procpid as pid, regexp_replace(current_query, E'[\\n\\r\\u2028]+', ' ', 'g' ) AS current_query FROM pg_stat_activity WHERE (query_start IS NOT NULL AND current_query NOT LIKE '<IDLE>%') ORDER BY query_start, procpid DESC;"
-    db_cursor.execute(q)
+        querytime_sql_cmd = ("SELECT datname, datid, usename, client_addr, '' AS state,"
+                             " COALESCE(ROUND(EXTRACT(epoch FROM now()-query_start)),0) "
+                             "AS seconds, procpid as pid, regexp_replace(current_query, "
+                             "E'[\\n\\r\\u2028]+', ' ', 'g' ) AS current_query "
+                             "FROM pg_stat_activity WHERE "
+                             "(query_start IS NOT NULL AND current_query NOT LIKE '<IDLE>%') "
+                             "ORDER BY query_start, procpid DESC;")
+    db_cursor.execute(querytime_sql_cmd)
     column_names = [desc[0] for desc in db_cursor.description]
-    print ";".join(column_names)
+    print(";".join(column_names))
     for row in db_cursor:
-        print ";".join(str(x) for x in psql_convert_tuple(row))
+        print(";".join(str(x) for x in psql_convert_tuple(row)))
 
 
 def postgres_stats():
-    # Contains last vacuum time and analyze time
-    print "<<<postgres_stats:sep(59)>>>"
+    print("<<<postgres_stats:sep(59)>>>")
     print_databases()
-    q = "\
-BEGIN;SET statement_timeout=30000;COMMIT;SELECT current_database() AS datname, nspname AS sname, relname AS tname,\
-      CASE WHEN v IS NULL THEN -1 ELSE round(extract(epoch FROM v)) END AS vtime,\
-      CASE WHEN g IS NULL THEN -1 ELSE round(extract(epoch FROM g)) END AS atime\
-    FROM (SELECT nspname, relname, GREATEST(pg_stat_get_last_vacuum_time(c.oid), pg_stat_get_last_autovacuum_time(c.oid)) AS v,\
-          GREATEST(pg_stat_get_last_analyze_time(c.oid), pg_stat_get_last_autoanalyze_time(c.oid)) AS g\
-          FROM pg_class c, pg_namespace n\
-          WHERE relkind = 'r'\
-          AND n.oid = c.relnamespace\
-          AND n.nspname <> 'information_schema'\
-          ORDER BY 3) AS foo;"
-    first_db=True
-    for db_name in databases:
-        db_i_connection = dbobj.connect(host=db_host, port=db_port, database=db_name[0], user=db_user, password=db_pass,  connect_timeout=5 )
+    sql_statement_timeout = ("BEGIN;SET statement_timeout=30000;COMMIT;")
+    sql_cmd_lastvacuum = ("SELECT "
+                          "current_database() AS datname, nspname AS sname, "
+                          "relname AS tname, CASE WHEN v IS NULL THEN -1 "
+                          "ELSE round(extract(epoch FROM v)) END AS vtime, "
+                          "CASE WHEN g IS NULL THEN -1 ELSE round(extract(epoch FROM v)) "
+                          "END AS atime FROM (SELECT nspname, relname, "
+                          "GREATEST(pg_stat_get_last_vacuum_time(c.oid), "
+                          "pg_stat_get_last_autovacuum_time(c.oid)) AS v, "
+                          "GREATEST(pg_stat_get_last_analyze_time(c.oid), "
+                          "pg_stat_get_last_autoanalyze_time(c.oid)) AS g "
+                          "FROM pg_class c, pg_namespace n WHERE relkind = 'r' "
+                          "AND n.oid = c.relnamespace AND n.nspname <> 'information_schema' "
+                          "ORDER BY 3) AS foo;")
+    query = "%s\n%s" % (sql_statement_timeout, sql_cmd_lastvacuum)
+
+    for cnt, database in enumerate(databases):
+        db_i_connection = dbobj.connect(host=db_host, port=db_port, database=database[0],
+                                        user=db_user, password=db_pass,  connect_timeout=5 )
         db_i_cursor = db_i_connection.cursor()
-        db_i_cursor.execute(q)
-        if first_db:
+        db_i_cursor.execute(query)
+        if cnt == 0: # first db -> include columns
             column_names = [desc[0] for desc in db_i_cursor.description]
-            print ";".join(column_names)
-            first_db = False
+            print(";".join(column_names))
 
         for row in db_i_cursor:
-            print ";".join(str(x) for x in psql_convert_tuple(row))
+            print(";".join(str(x) for x in psql_convert_tuple(row)))
 
         db_i_cursor.close
         db_i_connection.close
@@ -154,213 +189,178 @@ BEGIN;SET statement_timeout=30000;COMMIT;SELECT current_database() AS datname, n
 
 def postgres_version_and_conntime():
     # Postgres version banner and connection time
-    print "<<<postgres_version:sep(1)>>>"
-    print pg_versionbanner
-    print "<<<postgres_conn_time>>>"
-    print '{0:.3f}'.format(pg_conntime)
+    print("<<<postgres_version:sep(1)>>>")
+    print(pg_versionbanner)
+    print("<<<postgres_conn_time>>>")
+    print('{0:.3f}'.format(pg_conntime))
 
 
 def postgres_connections():
     # Number of current connections per database
-    print "<<<postgres_connections:sep(59)>>>"
+    print("<<<postgres_connections:sep(59)>>>")
     print_databases()
-    if pg_versionnumber >= 90200: # >= 9.2.0
-        q = "\
-SELECT COUNT(datid) AS current, \
-  (SELECT setting AS mc FROM pg_settings WHERE name = 'max_connections') AS mc, \
-  d.datname \
-FROM pg_database d \
-LEFT JOIN pg_stat_activity s ON (s.datid = d.oid) WHERE state <> 'idle' \
-GROUP BY 2,3 \
-ORDER BY datname"
-    else:
-        q = "\
-SELECT COUNT(datid) AS current, \
-  (SELECT setting AS mc FROM pg_settings WHERE name = 'max_connections') AS mc, \
-  d.datname \
-FROM pg_database d \
-LEFT JOIN pg_stat_activity s ON (s.datid = d.oid) WHERE current_query <> '<IDLE>' \
-GROUP BY 2,3 \
-ORDER BY datname"
-    db_cursor.execute(q)
+    connection_sql_cmd = ("SELECT datname, "
+                          "(SELECT setting AS mc FROM pg_settings "
+                          "WHERE name = 'max_connections') AS mc, "
+                          "COUNT(state) FILTER (WHERE state='idle') AS idle, "
+                          "COUNT(state) FILTER (WHERE state='active') AS active "
+                          "FROM pg_stat_activity group by 1;")
+    db_cursor.execute(connection_sql_cmd)
     column_names = [desc[0] for desc in db_cursor.description]
-    print ";".join(column_names)
+    print(";".join(column_names))
     for row in db_cursor:
-        print ";".join(str(x) for x in psql_convert_tuple(row))
+        print(";".join(str(x) for x in psql_convert_tuple(row)))
 
 
 
 def postgres_bloat():
 # Bloat index and tables # Credits: https://bucardo.org/check_postgres/
-    print "<<<postgres_bloat:sep(59)>>>"
+    print("<<<postgres_bloat:sep(59)>>>")
     print_databases()
     if pg_versionnumber >= 90000: # >= 9.0.0
-        q = "\
-SELECT\n\
-  current_database() AS db, schemaname, tablename, reltuples::bigint AS tups, relpages::bigint AS pages, otta,\n\
-  ROUND(CASE WHEN otta=0 OR sml.relpages=0 OR sml.relpages=otta THEN 0.0 ELSE sml.relpages/otta::numeric END,1) AS tbloat,\n\
-  CASE WHEN relpages < otta THEN 0 ELSE relpages::bigint - otta END AS wastedpages,\n\
-  CASE WHEN relpages < otta THEN 0 ELSE bs*(sml.relpages-otta)::bigint END AS wastedbytes,\n\
-  CASE WHEN relpages < otta THEN 0 ELSE (bs*(relpages-otta))::bigint END AS wastedsize,\n\
-  iname, ituples::bigint AS itups, ipages::bigint AS ipages, iotta,\n\
-  ROUND(CASE WHEN iotta=0 OR ipages=0 OR ipages=iotta THEN 0.0 ELSE ipages/iotta::numeric END,1) AS ibloat,\n\
-  CASE WHEN ipages < iotta THEN 0 ELSE ipages::bigint - iotta END AS wastedipages,\n\
-  CASE WHEN ipages < iotta THEN 0 ELSE bs*(ipages-iotta) END AS wastedibytes,\n\
-  CASE WHEN ipages < iotta THEN 0 ELSE (bs*(ipages-iotta))::bigint END AS wastedisize,\n\
-  CASE WHEN relpages < otta THEN\n\
-    CASE WHEN ipages < iotta THEN 0 ELSE bs*(ipages-iotta::bigint) END\n\
-    ELSE CASE WHEN ipages < iotta THEN bs*(relpages-otta::bigint)\n\
-      ELSE bs*(relpages-otta::bigint + ipages-iotta::bigint) END\n\
-  END AS totalwastedbytes\n\
-FROM (\n\
-  SELECT\n\
-    nn.nspname AS schemaname,\n\
-    cc.relname AS tablename,\n\
-    COALESCE(cc.reltuples,0) AS reltuples,\n\
-    COALESCE(cc.relpages,0) AS relpages,\n\
-    COALESCE(bs,0) AS bs,\n\
-    COALESCE(CEIL((cc.reltuples*((datahdr+ma-\n\
-      (CASE WHEN datahdr%ma=0 THEN ma ELSE datahdr%ma END))+nullhdr2+4))/(bs-20::float)),0) AS otta,\n\
-    COALESCE(c2.relname,'?') AS iname, COALESCE(c2.reltuples,0) AS ituples, COALESCE(c2.relpages,0) AS ipages,\n\
-    COALESCE(CEIL((c2.reltuples*(datahdr-12))/(bs-20::float)),0) AS iotta -- very rough approximation, assumes all cols\n\
-  FROM\n\
-     pg_class cc\n\
-  JOIN pg_namespace nn ON cc.relnamespace = nn.oid AND nn.nspname <> 'information_schema'\n\
-  LEFT JOIN\n\
-  (\n\
-    SELECT\n\
-      ma,bs,foo.nspname,foo.relname,\n\
-      (datawidth+(hdr+ma-(case when hdr%ma=0 THEN ma ELSE hdr%ma END)))::numeric AS datahdr,\n\
-      (maxfracsum*(nullhdr+ma-(case when nullhdr%ma=0 THEN ma ELSE nullhdr%ma END))) AS nullhdr2\n\
-    FROM (\n\
-      SELECT\n\
-        ns.nspname, tbl.relname, hdr, ma, bs,\n\
-        SUM((1-coalesce(null_frac,0))*coalesce(avg_width, 2048)) AS datawidth,\n\
-        MAX(coalesce(null_frac,0)) AS maxfracsum,\n\
-        hdr+(\n\
-          SELECT 1+count(*)/8\n\
-          FROM pg_stats s2\n\
-          WHERE null_frac<>0 AND s2.schemaname = ns.nspname AND s2.tablename = tbl.relname\n\
-        ) AS nullhdr\n\
-      FROM pg_attribute att\n\
-      JOIN pg_class tbl ON att.attrelid = tbl.oid\n\
-      JOIN pg_namespace ns ON ns.oid = tbl.relnamespace\n\
-      LEFT JOIN pg_stats s ON s.schemaname=ns.nspname\n\
-      AND s.tablename = tbl.relname\n\
-      AND s.inherited=false\n\
-      AND s.attname=att.attname,\n\
-      (\n\
-        SELECT\n\
-          (SELECT current_setting('block_size')::numeric) AS bs,\n\
-            CASE WHEN SUBSTRING(SPLIT_PART(v, ' ', 2) FROM '#\[0-9]+.[0-9]+#\%' for '#')\n\
-              IN ('8.0','8.1','8.2') THEN 27 ELSE 23 END AS hdr,\n\
-          CASE WHEN v ~ 'mingw32' OR v ~ '64-bit' THEN 8 ELSE 4 END AS ma\n\
-        FROM (SELECT version() AS v) AS foo\n\
-      ) AS constants\n\
-      WHERE att.attnum > 0 AND tbl.relkind='r'\n\
-      GROUP BY 1,2,3,4,5\n\
-    ) AS foo\n\
-  ) AS rs\n\
-  ON cc.relname = rs.relname AND nn.nspname = rs.nspname\n\
-  LEFT JOIN pg_index i ON indrelid = cc.oid\n\
-  LEFT JOIN pg_class c2 ON c2.oid = i.indexrelid\n\
-) AS sml\n\
- WHERE sml.relpages - otta > 0 OR ipages - iotta > 10 ORDER BY totalwastedbytes DESC LIMIT 10;"
+        bloat_query = (
+            "SELECT current_database() AS db, schemaname, tablename, reltuples::bigint "
+            "AS tups, relpages::bigint AS pages, otta, ROUND(CASE WHEN sml.relpages=0 "
+            "OR sml.relpages=otta THEN 0.0 "
+            "ELSE (sml.relpages-otta::numeric)/sml.relpages END,3) AS tbloat, "
+            "CASE WHEN relpages < otta THEN 0 "
+            "ELSE relpages::bigint - otta END AS wastedpages, "
+            "CASE WHEN relpages < otta THEN 0 ELSE bs*(sml.relpages-otta)::bigint END "
+            "AS wastedbytes, CASE WHEN relpages < otta THEN 0 "
+            "ELSE (bs*(relpages-otta))::bigint END "
+            "AS wastedsize, iname, ituples::bigint AS itups, ipages::bigint "
+            "AS ipages, iotta, ROUND(CASE WHEN ipages=0 OR ipages<=iotta THEN 0.0 "
+            "ELSE (ipages-iotta::numeric)/ipages END,3) AS ibloat, "
+            "CASE WHEN ipages < iotta THEN 0 ELSE ipages::bigint - iotta END "
+            "AS wastedipages, CASE WHEN ipages < iotta THEN 0 ELSE bs*(ipages-iotta) "
+            "END AS wastedibytes, CASE WHEN ipages < iotta THEN 0 "
+            "ELSE (bs*(ipages-iotta))::bigint END AS wastedisize, "
+            "CASE WHEN relpages < otta THEN CASE WHEN ipages < iotta THEN 0 "
+            "ELSE bs*(ipages-iotta::bigint) END ELSE CASE WHEN ipages < iotta "
+            "THEN bs*(relpages-otta::bigint) "
+            "ELSE bs*(relpages-otta::bigint + ipages-iotta::bigint) "
+            "END END AS totalwastedbytes "
+            "FROM ( SELECT nn.nspname AS schemaname, cc.relname AS tablename, "
+            "COALESCE(cc.reltuples,0) AS reltuples, COALESCE(cc.relpages,0) "
+            "AS relpages, COALESCE(bs,0) AS bs, "
+            "COALESCE(CEIL((cc.reltuples*((datahdr+ma- (CASE WHEN datahdr%ma=0 "
+            "THEN ma ELSE datahdr%ma END))+nullhdr2+4))/(bs-20::float)),0) "
+            "AS otta, COALESCE(c2.relname,'?') AS iname, COALESCE(c2.reltuples,0) "
+            "AS ituples, COALESCE(c2.relpages,0) "
+            "AS ipages, COALESCE(CEIL((c2.reltuples*(datahdr-12))/(bs-20::float)),0) "
+            "AS iotta FROM pg_class cc "
+            "JOIN pg_namespace nn ON cc.relnamespace = nn.oid "
+            "AND nn.nspname <> 'information_schema' LEFT JOIN "
+            "( SELECT ma,bs,foo.nspname,foo.relname, "
+            "(datawidth+(hdr+ma-(case when hdr%ma=0 "
+            "THEN ma ELSE hdr%ma END)))::numeric AS datahdr, "
+            "(maxfracsum*(nullhdr+ma-(case when nullhdr%ma=0 THEN ma "
+            "ELSE nullhdr%ma END))) AS nullhdr2 "
+            "FROM ( SELECT ns.nspname, tbl.relname, hdr, ma, bs, "
+            "SUM((1-coalesce(null_frac,0))*coalesce(avg_width, 2048)) AS datawidth, "
+            "MAX(coalesce(null_frac,0)) AS maxfracsum, hdr+( SELECT 1+count(*)/8 "
+            "FROM pg_stats s2 WHERE null_frac<>0 AND s2.schemaname = ns.nspname "
+            "AND s2.tablename = tbl.relname ) AS nullhdr FROM pg_attribute att "
+            "JOIN pg_class tbl ON att.attrelid = tbl.oid JOIN pg_namespace ns "
+            "ON ns.oid = tbl.relnamespace LEFT JOIN pg_stats s "
+            "ON s.schemaname=ns.nspname AND s.tablename = tbl.relname AND "
+            "s.inherited=false AND s.attname=att.attname, "
+            "( SELECT (SELECT current_setting('block_size')::numeric) AS bs, CASE WHEN "
+            "SUBSTRING(SPLIT_PART(v, ' ', 2) FROM '#\\[0-9]+.[0-9]+#\\%' for '#') "
+            "IN ('8.0','8.1','8.2') THEN 27 ELSE 23 END AS hdr, CASE "
+            "WHEN v ~ 'mingw32' OR v ~ '64-bit' THEN 8 ELSE 4 END AS ma "
+            "FROM (SELECT version() AS v) AS foo ) AS constants WHERE att.attnum > 0 "
+            "AND tbl.relkind='r' GROUP BY 1,2,3,4,5 ) AS foo ) AS rs "
+            "ON cc.relname = rs.relname AND nn.nspname = rs.nspname LEFT JOIN pg_index i "
+            "ON indrelid = cc.oid LEFT JOIN pg_class c2 ON c2.oid = i.indexrelid ) "
+            "AS sml WHERE sml.relpages - otta > 0 OR ipages - iotta > 10 ORDER "
+            "BY totalwastedbytes DESC LIMIT 10;")
     else:
-        q = "\
-SELECT\n\
-  current_database() AS db, schemaname, tablename, reltuples::bigint AS tups, relpages::bigint AS pages, otta,\n\
-  ROUND(CASE WHEN otta=0 OR sml.relpages=0 OR sml.relpages=otta THEN 0.0 ELSE sml.relpages/otta::numeric END,1) AS tbloat,\n\
-  CASE WHEN relpages < otta THEN 0 ELSE relpages::bigint - otta END AS wastedpages,\n\
-  CASE WHEN relpages < otta THEN 0 ELSE bs*(sml.relpages-otta)::bigint END AS wastedbytes,\n\
-  CASE WHEN relpages < otta THEN '0 bytes'::text ELSE (bs*(relpages-otta))::bigint || ' bytes' END AS wastedsize,\n\
-  iname, ituples::bigint AS itups, ipages::bigint AS ipages, iotta,\n\
-  ROUND(CASE WHEN iotta=0 OR ipages=0 OR ipages=iotta THEN 0.0 ELSE ipages/iotta::numeric END,1) AS ibloat,\n\
-  CASE WHEN ipages < iotta THEN 0 ELSE ipages::bigint - iotta END AS wastedipages,\n\
-  CASE WHEN ipages < iotta THEN 0 ELSE bs*(ipages-iotta) END AS wastedibytes,\n\
-  CASE WHEN ipages < iotta THEN '0 bytes' ELSE (bs*(ipages-iotta))::bigint || ' bytes' END AS wastedisize,\n\
-  CASE WHEN relpages < otta THEN\n\
-    CASE WHEN ipages < iotta THEN 0 ELSE bs*(ipages-iotta::bigint) END\n\
-    ELSE CASE WHEN ipages < iotta THEN bs*(relpages-otta::bigint)\n\
-      ELSE bs*(relpages-otta::bigint + ipages-iotta::bigint) END\n\
-  END AS totalwastedbytes\n\
-FROM (\n\
-  SELECT\n\
-    nn.nspname AS schemaname,\n\
-    cc.relname AS tablename,\n\
-    COALESCE(cc.reltuples,0) AS reltuples,\n\
-    COALESCE(cc.relpages,0) AS relpages,\n\
-    COALESCE(bs,0) AS bs,\n\
-    COALESCE(CEIL((cc.reltuples*((datahdr+ma-\n\
-      (CASE WHEN datahdr%ma=0 THEN ma ELSE datahdr%ma END))+nullhdr2+4))/(bs-20::float)),0) AS otta,\n\
-    COALESCE(c2.relname,'?') AS iname, COALESCE(c2.reltuples,0) AS ituples, COALESCE(c2.relpages,0) AS ipages,\n\
-    COALESCE(CEIL((c2.reltuples*(datahdr-12))/(bs-20::float)),0) AS iotta -- very rough approximation, assumes all cols\n\
-  FROM\n\
-     pg_class cc\n\
-  JOIN pg_namespace nn ON cc.relnamespace = nn.oid AND nn.nspname <> 'information_schema'\n\
-  LEFT JOIN\n\
-  (\n\
-    SELECT\n\
-      ma,bs,foo.nspname,foo.relname,\n\
-      (datawidth+(hdr+ma-(case when hdr%ma=0 THEN ma ELSE hdr%ma END)))::numeric AS datahdr,\n\
-      (maxfracsum*(nullhdr+ma-(case when nullhdr%ma=0 THEN ma ELSE nullhdr%ma END))) AS nullhdr2\n\
-    FROM (\n\
-      SELECT\n\
-        ns.nspname, tbl.relname, hdr, ma, bs,\n\
-        SUM((1-coalesce(null_frac,0))*coalesce(avg_width, 2048)) AS datawidth,\n\
-        MAX(coalesce(null_frac,0)) AS maxfracsum,\n\
-        hdr+(\n\
-          SELECT 1+count(*)/8\n\
-          FROM pg_stats s2\n\
-          WHERE null_frac<>0 AND s2.schemaname = ns.nspname AND s2.tablename = tbl.relname\n\
-        ) AS nullhdr\n\
-      FROM pg_attribute att\n\
-      JOIN pg_class tbl ON att.attrelid = tbl.oid\n\
-      JOIN pg_namespace ns ON ns.oid = tbl.relnamespace\n\
-      LEFT JOIN pg_stats s ON s.schemaname=ns.nspname\n\
-      AND s.tablename = tbl.relname\n\
-      AND s.attname=att.attname,\n\
-      (\n\
-        SELECT\n\
-          (SELECT current_setting('block_size')::numeric) AS bs,\n\
-            CASE WHEN SUBSTRING(SPLIT_PART(v, ' ', 2) FROM '#\"[0-9]+.[0-9]+#\"%' for '#')\n\
-              IN ('8.0','8.1','8.2') THEN 27 ELSE 23 END AS hdr,\n\
-          CASE WHEN v ~ 'mingw32' OR v ~ '64-bit' THEN 8 ELSE 4 END AS ma\n\
-        FROM (SELECT version() AS v) AS foo\n\
-      ) AS constants\n\
-      WHERE att.attnum > 0 AND tbl.relkind='r'\n\
-      GROUP BY 1,2,3,4,5\n\
-    ) AS foo\n\
-  ) AS rs\n\
-  ON cc.relname = rs.relname AND nn.nspname = rs.nspname\n\
-  LEFT JOIN pg_index i ON indrelid = cc.oid\n\
-  LEFT JOIN pg_class c2 ON c2.oid = i.indexrelid\n\
-) AS sml\n\
- WHERE sml.relpages - otta > 0 OR ipages - iotta > 10 ORDER BY totalwastedbytes DESC LIMIT 10;"
-    first_db=True
-    for db_name in databases:
-        db_i_connection = dbobj.connect(host=db_host, port=db_port, database=db_name[0], user=db_user, password=db_pass,  connect_timeout=5 )
+        bloat_query = (
+            "SELECT "
+            "current_database() AS db, schemaname, tablename, "
+            "reltuples::bigint AS tups, relpages::bigint AS pages, otta, "
+            "ROUND(CASE WHEN sml.relpages=0 OR sml.relpages=otta THEN 0.0 "
+            "ELSE (sml.relpages-otta::numeric)/sml.relpages END,3) AS tbloat, "
+            "CASE WHEN relpages < otta THEN 0 ELSE relpages::bigint - otta END "
+            "AS wastedpages, CASE WHEN relpages < otta THEN 0 "
+            "ELSE bs*(sml.relpages-otta)::bigint END AS wastedbytes, "
+            "CASE WHEN relpages < otta THEN '0 bytes'::text "
+            "ELSE (bs*(relpages-otta))::bigint || ' bytes' END AS wastedsize, "
+            "iname, ituples::bigint AS itups, ipages::bigint AS ipages, iotta, "
+            "ROUND(CASE WHEN ipages=0 OR ipages<=iotta THEN 0.0 ELSE "
+            "(ipages-iotta::numeric)/ipages END,3) AS ibloat, "
+            "CASE WHEN ipages < iotta THEN 0 ELSE ipages::bigint - iotta END "
+            "AS wastedipages, CASE WHEN ipages < iotta THEN 0 "
+            "ELSE bs*(ipages-iotta) END AS wastedibytes, "
+            "CASE WHEN ipages < iotta THEN '0 bytes' ELSE "
+            "(bs*(ipages-iotta))::bigint || ' bytes' END AS wastedisize, CASE "
+            "WHEN relpages < otta THEN CASE WHEN ipages < iotta THEN 0 "
+            "ELSE bs*(ipages-iotta::bigint) END ELSE CASE WHEN ipages < iotta "
+            "THEN bs*(relpages-otta::bigint) "
+            "ELSE bs*(relpages-otta::bigint + ipages-iotta::bigint) END "
+            "END AS totalwastedbytes FROM (SELECT nn.nspname AS schemaname, "
+            "cc.relname AS tablename, COALESCE(cc.reltuples,0) AS reltuples, "
+            "COALESCE(cc.relpages,0) AS relpages, COALESCE(bs,0) AS bs, "
+            "COALESCE(CEIL((cc.reltuples*((datahdr+ma-(CASE WHEN datahdr%ma=0 "
+            "THEN ma ELSE datahdr%ma END))+nullhdr2+4))/(bs-20::float)),0) AS otta, "
+            "COALESCE(c2.relname,'?') AS iname, COALESCE(c2.reltuples,0) AS ituples, "
+            "COALESCE(c2.relpages,0) AS ipages, "
+            "COALESCE(CEIL((c2.reltuples*(datahdr-12))/(bs-20::float)),0) AS iotta "
+            "FROM pg_class cc JOIN pg_namespace nn ON cc.relnamespace = nn.oid "
+            "AND nn.nspname <> 'information_schema' LEFT "
+            "JOIN(SELECT ma,bs,foo.nspname,foo.relname, "
+            "(datawidth+(hdr+ma-(case when hdr%ma=0 THEN ma "
+            "ELSE hdr%ma END)))::numeric AS datahdr, "
+            "(maxfracsum*(nullhdr+ma-(case when nullhdr%ma=0 THEN ma "
+            "ELSE nullhdr%ma END))) AS nullhdr2 "
+            "FROM (SELECT ns.nspname, tbl.relname, hdr, ma, bs, "
+            "SUM((1-coalesce(null_frac,0))*coalesce(avg_width, 2048)) "
+            "AS datawidth, MAX(coalesce(null_frac,0)) AS maxfracsum, hdr+("
+            "SELECT 1+count(*)/8 FROM pg_stats s2 WHERE null_frac<>0 "
+            "AND s2.schemaname = ns.nspname AND s2.tablename = tbl.relname) "
+            "AS nullhdr FROM pg_attribute att JOIN pg_class tbl "
+            "ON att.attrelid = tbl.oid JOIN pg_namespace ns ON "
+            "ns.oid = tbl.relnamespace LEFT JOIN pg_stats s "
+            "ON s.schemaname=ns.nspname AND s.tablename = tbl.relname "
+            "AND s.attname=att.attname, (SELECT ("
+            "SELECT current_setting('block_size')::numeric) AS bs, CASE WHEN "
+            "SUBSTRING(SPLIT_PART(v, ' ', 2) FROM '#\"[0-9]+.[0-9]+#\"%' for '#') "
+            "IN ('8.0','8.1','8.2') THEN 27 ELSE 23 END AS hdr, CASE "
+            "WHEN v ~ 'mingw32' OR v ~ '64-bit' THEN 8 ELSE 4 END AS ma "
+            "FROM (SELECT version() AS v) AS foo) AS constants WHERE att.attnum > 0 "
+            "AND tbl.relkind='r' GROUP BY 1,2,3,4,5) AS foo) AS rs ON "
+            "cc.relname = rs.relname AND nn.nspname = rs.nspname LEFT JOIN pg_index i "
+            "ON indrelid = cc.oid LEFT JOIN pg_class c2 ON c2.oid = i.indexrelid) "
+            "AS sml WHERE sml.relpages - otta > 0 OR ipages - iotta > 10 ORDER "
+            "BY totalwastedbytes DESC LIMIT 10;")
+
+
+    for idx, database in enumerate(databases):
+        db_i_connection = dbobj.connect(host=db_host, port=db_port, database=database[0],
+                                        user=db_user, password=db_pass,  connect_timeout=5 )
         db_i_cursor = db_i_connection.cursor()
-        db_i_cursor.execute(q)
-        if first_db:
+        db_i_cursor.execute(bloat_query)
+        if idx == 0: # first db -> include columns
             column_names = [desc[0] for desc in db_i_cursor.description]
-            print ";".join(column_names)
-            first_db = False
+            print(";".join(column_names))
 
         for row in db_i_cursor:
-            print ";".join(str(x) for x in psql_convert_tuple(row))
+            print(";".join(str(x) for x in psql_convert_tuple(row)))
 
         db_i_cursor.close
         db_i_connection.close
+
+
 
 
 postgres_sessions()
 postgres_stat_database()
 postgres_locks()
 postgres_query_duration()
+postgres_connections()
 postgres_stats()
 postgres_version_and_conntime()
-postgres_connections()
 postgres_bloat()
 
 

@@ -1,15 +1,16 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 # -*- encoding: utf-8; py-indent-offset: 4 -*-
 
-register_rule("datasource_programs",
+group = "datasource_programs"
+
+register_rule(group,
     "special_agents:rdspostgres",
-    Tuple(
-        title = _("Amazon RDS Postgres"),
-        help = _( "Monitoring of Amazon AWS RDS Postgres"),
-        elements = [
-           TextAscii(title = _("Username")),
-           Password( title = _("Password")),
-        ]
+    Dictionary(
+        title=_("Amazon RDS Postgres"),
+        elements=[
+               ('username', TextAscii(title=_("Username"))),
+               ('password', Password(title=_("Password"))),
+        ],
+        optional_keys = None,
     ),
-    factory_default = Rulespec.FACTORY_DEFAULT_UNUSED,
-    match = "first")
+)
